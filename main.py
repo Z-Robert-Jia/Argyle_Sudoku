@@ -172,7 +172,10 @@ def solving_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool):
     for r in range(0, 9, 3):
         for c in range(0, 9, 3):
             box = [_grid[r + dy][c + dx] for dy, dx in offset]
-            _solver.add(z3.Distinct(box))
+            if no_num:
+                _solver.add(z3.And([z3.PbEq([(box[j][k],1) for j in range(9)],1) for k in range(9)])]))
+            else:
+                _solver.add(z3.Distinct(box))
     # Assert major diagonal distinct
     if not classic:
         # Major diagonal 1
