@@ -99,25 +99,17 @@ class Sudoku:
         else:
             pass
             # TODO implement distinct for no_num
-        # Assert major diagonal distinct
-        # Major diagonal 1
-        self._solver.add(z3.Distinct([self._grid[r][r + 4] for r in range(4)]))
-        # Major diagonal 2
-        self._solver.add(z3.Distinct([self._grid[r][r + 1] for r in range(8)]))
-        # Major diagonal 3
-        self._solver.add(z3.Distinct([self._grid[r + 1][r] for r in range(8)]))
-        # Major diagonal 4
-        self._solver.add(z3.Distinct([self._grid[r + 4][r] for r in range(4)]))
-        # # Assert minor diagonal distinct
-        # Minor diagonal 1
-        self._solver.add(z3.Distinct([self._grid[r][-r - 5] for r in range(4)]))
-        # Minor diagonal 2
-        self._solver.add(z3.Distinct([self._grid[r][-r - 2] for r in range(8)]))
-        # Minor diagonal 3
-        self._solver.add(z3.Distinct([self._grid[r + 1][-r - 1] for r in range(8)]))
-        # Minor diagonal 4
-        self._solver.add(z3.Distinct([self._grid[r + 4][-r - 1] for r in range(4)]))
-        # Assert minor diagonal distinct
+        argile_hints = [[self._grid[r][r + 4] for r in range(4)] # Major diagonal 1
+                       ,[self._grid[r][r + 1] for r in range(8)] # ??
+                       ,[self._grid[r + 1][r] for r in range(8)]
+                       ,[self._grid[r + 4][r] for r in range(4)]
+                       ,[self._grid[r][-r - 5] for r in range(4)]
+                       ,[self._grid[r][-r - 2] for r in range(8)]
+                       ,[self._grid[r + 1][-r - 1] for r in range(8)]
+                       ,[self._grid[r + 4][-r - 1] for r in range(4)]
+                       ]
+        for arg in argile_hints:
+            self._solver.add(z3.Distinct(arg))
 
     def solve(self):
         if self._solver.check() == z3.sat:
@@ -180,7 +172,10 @@ def solving_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool):
     for r in range(0, 9, 3):
         for c in range(0, 9, 3):
             box = [_grid[r + dy][c + dx] for dy, dx in offset]
-            _solver.add(z3.Distinct(box))
+            if no_num:
+                _solver.add(z3.And([z3.PbEq([(box[j][k],1) for j in range(9)],1) for k in range(9)])]))
+            else:
+                _solver.add(z3.Distinct(box))
     # Assert major diagonal distinct
     if not classic:
         # Major diagonal 1
