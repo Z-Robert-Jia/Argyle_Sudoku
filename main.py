@@ -22,13 +22,15 @@ class Sudoku:
     _distinct = True
     _classic = True
     _no_num = True
+    _per_col = True
 
-    def __init__(self, sudoku_array, classic, distinct, no_num):
+    def __init__(self, sudoku_array, classic: bool, distinct: bool, per_col: bool, no_num: bool):
         # a 1-D sudoku_array
         self._solver = z3.Solver()
         self._classic = classic
         self._distinct = distinct
         self._no_num = no_num
+        self._per_col = per_col
         # Create variables
         if not no_num:
             self._grid = [[z3.Int('cell_%d_%d' % (r + 1, c + 1)) for c in range(9)] for r in range(9)]
@@ -46,7 +48,6 @@ class Sudoku:
         assert (len(sudoku_array) >= 81), "Invalid sudoku string provided! (length)"
         self.load_numbers(sudoku_array[:81])
         # Add constraints for classic sudoku
-        self.load_constraints()
 
 
     def v(self,r,c):
@@ -72,87 +73,192 @@ class Sudoku:
                         self._solver.add(self._grid[r][c] == int(x))
 
     def load_constraints(self):
-        # Digits from 1-9
-        if not self._no_num:
-            for r in range(9):
-                for c in range(9):
-                    v = self._grid[r][c]
-                    self._solver.add(v >= 1)
-                    self._solver.add(v <= 9)
+        # Every digit
+        digits = [self._grid[r][c] for c in range(9) for r in range(9)]
+        # row1-9
+        rows = [self._grid[r] for r in range(9)]
+        # col1-9
+        cols = [[self._grid[r][c] for r in range(9)] for c in range(9)]
+        # box 1st-9th
+        offset = list(itertools.product(range(0, 3), range(0, 3)))
+        boxes = []
+        for r in range(0, 9, 3):
+            for c in range(0, 9, 3):
+                boxes.append([self._grid[r + dy][c + dx] for dy, dx in offset])
 
-            # Distinct digits in row/column
-            for i in range(9):
+
+        if self._no_num:
+            # pbeq ONLY, no_num 3D grid
+            self._solver.add(z3.And([z3.PbEq([(self._grid[i][j][k], 1) for k in range(9)], 1) for i in range(9) for j in
+                                range(9)]))  # digit
+            self._solver.add(z3.And([z3.PbEq([(self._grid[k][i][j], 1) for k in range(9)], 1) for i in range(9) for j in
+                                range(9)]))  # Col distinct
+            self._solver.add(z3.And([z3.PbEq([(self._grid[j][k][i], 1) for k in range(9)], 1) for i in range(9) for j in
+                                range(9)]))  # Row distinct
+            self._solver.add(z3.And([z3.PbEq([(box[k][j],1) for k in range(9)],1)for j in range(9) for box in boxes])) #box
+        else: # numbers  2D grid
+            # Restrict digits in between 1-9
+            # **** This might not be correct
+            [self._solver.add(z3.And(digit >= 1, digit <= 9)) for digit in digits]  # Digit
+            if self._distinct: # distinct, numbers 2D grid
+                self._solver.add(z3.And([z3.Distinct(row) for row in rows])) # rows
+                self._solver.add(z3.And([z3.Distinct(col) for col in cols])) # cols
+                self._solver.add(z3.And([z3.Distinct(box) for box in boxes])) # box
+
+            else: # pbeq, numbers, 2D grid
+                [self._solver.add(z3.And([z3.PbEq([(row[i]==k, 1) for i in range(9)], 1) for k in range(9)])) for row in rows] # row
+                [self._solver.add(z3.And([z3.PbEq([(col[i]==k, 1) for i in range(9)], 1)for k in range(9)])) for col in cols] # col
+                [self._solver.add(z3.And([z3.PbEq([(box[i]==k, 1) for i in range(9)],1)for k in range(9)])) for box in boxes] # box
+
+        # Argyle-----
+        if not self._classic:
+            argile_hints = [[self._grid[r][r + 4] for r in range(4)] # Major diagonal 1
+                           ,[self._grid[r][r + 1] for r in range(8)] # ??
+                           ,[self._grid[r + 1][r] for r in range(8)]
+                           ,[self._grid[r + 4][r] for r in range(4)]
+                           ,[self._grid[r][-r - 5] for r in range(4)]
+                           ,[self._grid[r][-r - 2] for r in range(8)]
+                           ,[self._grid[r + 1][-r - 1] for r in range(8)]
+                           ,[self._grid[r + 4][-r - 1] for r in range(4)]
+                           ]
+            if self._no_num:
+                self._solver.add(
+                    z3.And([z3.PbLe([(digit[k], 1) for k in range(9)], 1) for arg in argile_hints for digit in arg]))
+                pass
+            else:
                 if self._distinct:
-                    self._solver.add(z3.Distinct(self._grid[i]))  # Row
-                    self._solver.add(z3.Distinct([self._grid[r][i] for r in range(9)]))  # Column
+                    self._solver.add(z3.And([z3.Distinct(arg) for arg in argile_hints]))
                 else:
-                    self._solver.add(
-                        z3.And([z3.PbEq([(self._grid[i][j] == k, 1) for j in range(9)], 1) for k in range(1, 10)]))  # Row
-                    self._solver.add(
-                        z3.And([z3.PbEq([(self._grid[j][i] == k, 1) for j in range(9)], 1) for k in range(1, 10)]))
-                    # Distinct digits in boxes
-            offset = list(itertools.product(range(0, 3), range(0, 3)))
-            for r in range(0, 9, 3):
-                for c in range(0, 9, 3):
-                    box = [self._grid[r + dy][c + dx] for dy, dx in offset]
-                    self._solver.add(z3.Distinct(box))
-        else:
-            pass
-            # TODO implement distinct for no_num
-        argile_hints = [[self._grid[r][r + 4] for r in range(4)] # Major diagonal 1
-                       ,[self._grid[r][r + 1] for r in range(8)] # ??
-                       ,[self._grid[r + 1][r] for r in range(8)]
-                       ,[self._grid[r + 4][r] for r in range(4)]
-                       ,[self._grid[r][-r - 5] for r in range(4)]
-                       ,[self._grid[r][-r - 2] for r in range(8)]
-                       ,[self._grid[r + 1][-r - 1] for r in range(8)]
-                       ,[self._grid[r + 4][-r - 1] for r in range(4)]
-                       ]
-        for arg in argile_hints:
-            self._solver.add(z3.Distinct(arg))
+                    self._solver.add(z3.And([z3.PbLe([(digit == k,1) for k in range(9)], 1) for arg in argile_hints for digit in arg]))
+
+
 
     def solve(self):
+        self.load_constraints()
         if self._solver.check() == z3.sat:
-            m = self._solver.model()
-            for r in range(9):
-                for c in range(9):
-                    self._nums[r][c] = m.evaluate(self._grid[r][c])
-            # solved_puzzle.append(self._nums)
+            # m = self._solver.model()
+            # for r in range(9):
+            #     for c in range(9):
+            #         self._nums[r][c] = m.evaluate(self._grid[r][c])
             return True
         else:
             return False
+    def removable(self, i, j, test_num):
+        '''
+        Test if test_num is unique and could be removed
+        --Replacement: check_puzzle_solvable function
+
+        :param test_num: 1-9
+        :return: a boolean indicating if test_num could be removed
+        '''
+        self._nums[i][j] = 0
+        self.load_constraints()
+        removable = True
+        x = [i for i in range(1,10)]
+        x.pop(test_num)
+        if self._no_num:
+            if self._solver.check(self._grid[i][j][test_num-1]) == z3.sat:
+                removable = False
+        else:
+            if self._solver.check(self._grid[i][j] == int(test_num)) == z3.sat:
+                removable = False
+
+        return removable
 
 
-# function for solving puzzle param: classic, distinct, per_col
-def solving_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool):
+    def gen_solved_sudoku(self):
+        '''
+        produce a solved FULL sudoku
+        --Replacement: solving_sudoku function
+
+        :return: 2D list of a solved sudoku
+        '''
+        self.load_constraints()
+        if self._solver.check() == z3.sat:
+
+            # *** Is there any way to further optimize this code
+            if self._per_col:
+                # Fill by index
+                for i in range(9):
+                    for j in range(9):
+                        x = [k for k in range(10)]
+                        random.shuffle(x)
+                        tryVal = x.pop()
+                        if self._no_num:
+                            check_condition = self._solver.check(self._grid[i][j][tryVal-1]) != z3.sat
+                        else:
+                            check_condition = self._solver.check(self._grid[i][j] == int(tryVal)) != z3.sat
+
+                        #**** Might be unsafe to do
+                        while check_condition:
+                            if len(x) == 0:
+                                raise 'Tried all values, no luck, check gen_solved_sudoku'
+                            tryVal = x.pop()
+                        self._nums[i][j] = int(tryVal)
+                        if self._no_num:
+                            self._solver.add(self._grid[i][j][tryVal-1])
+                        else:
+                            self._solver.add(self._grid[i][j] == tryVal)
+
+            else:
+                # Start by filling the number 1,2,3...9
+                for num in range(1,10):
+                    if num == 0:
+                        for r in range(9):
+                            for c in range(9):
+                                if self._nums[r][c] == '.':
+                                    self._nums[r][c] = int(num)
+                                    if self._no_num:
+                                        self._solver.add(self._grid[r][c][num-1])
+                                    else:
+                                        self._solver.add(self._grid[r][c] == int(num))
+                    cols = [i for i in range(9)]
+                    for r in range(9):
+                        for c in cols:
+                            if self._nums[r][c] == '.':
+                                if self._no_num:
+                                    condition = self._grid[r][c][num-1]
+                                else:
+                                    condition = self._grid[r][c] == int(num)
+                                    z3r = self._solver.check(condition)
+                                if z3r == z3.sat:
+                                    self._nums[r][c] = int(num)
+                                    self._solver.add(condition)
+                                    cols.remove(c)
+                                    break
+                                else:
+                                    if z3r != z3.unsat:
+                                        raise "Z3 error"
+
+            print("Generated a solved sudoku")
+            return self._nums
+        else:
+            raise 'Error from gen_solved_sudoku function in "load_constraints"'
+
+
+def generate_puzzle(solved_sudokus, classic: bool, distinct: bool, per_col: bool, no_num: bool):
     '''
-    Solve a full sudoku
+    Generates puzzle with holes
 
-    :param no_num:
+    :param solved_sudokus: MUST BE a 3D list
     :param classic:
     :param distinct:
-    :param per_col:
-    :return: 2D list of solved suodoku
+    :return: a list of time required for generating each puzzle
     '''
-    if not no_num:
-        # variable cell_i_j
-        _grid = [[z3.Int('cell_%d_%d' % (r + 1, c + 1)) for r in range(9)] for c in range(9)]
-    else:
-        # variable cell_i_j_num
-        _grid = [[[z3.Bool('cell_%d_%d_%d' % (r + 1, c + 1, num+1)) for num in range(9)] for c in range(9)] for r in range(9)]
-    # The solver
-    _solver = z3.Solver()
-    # Empty grid
-    _nums = [['.' for _ in range(9)] for _ in range(9)]
+    time_rec = []
+    for puzzle in solved_sudokus:
+        st = time.time()
+        for i in range(9):
+            for j in range(9):
+                s = Sudoku(puzzle.reshape(-1), classic, distinct, per_col, no_num)
+                if s.removable(i, j, puzzle[i][j]):
+                    puzzle[i][j] = 0
+        et = time.time()
+        time_rec.append(et - st)
+        print('Successfully generated one puzzle')
+    return time_rec
 
-    # build restrictions
-    if not no_num:
-        for r in range(9):
-            for c in range(9):
-                v = _grid[r][c]
-                _solver.add(v >= 1)
-                _solver.add(v <= 9)
-        # *** Check
+'''****
         if distinct:
             _solver.add(z3.And([z3.Distinct([_grid[r][c] for r in range(9)]) for c in range(9)]))  # Cols distinct
             _solver.add(z3.And([z3.Distinct(_grid[i]) for i in range(9)]))  # Rows distinct
@@ -160,11 +266,6 @@ def solving_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool):
             _solver.add(z3.And([z3.And([z3.PbEq([(_grid[i][j] == k, 1) for j in range(9)], 1) for k in range(1, 10)]) for i in range(9)]))  # Row
             _solver.add(z3.And([z3.And([z3.PbEq([(_grid[j][i] == k, 1) for j in range(9)], 1) for k in range(1, 10)]) for i in range(9)]))
             # Distinct digits in boxes
-    else:
-        # How to add distinct??
-        _solver.add(z3.And([z3.PbEq([(_grid[i][j][k] == True, 1) for k in range(9)], 1) for i in range(9) for j in range(9)]))  # one of 1-9 per cell
-        _solver.add(z3.And([z3.PbEq([(_grid[k][j][i] == True, 1) for k in range(9)], 1) for i in range(9) for j in range(9)]))  # Col distinct
-        _solver.add(z3.And([z3.PbEq([(_grid[j][k][i] == True, 1) for k in range(9)], 1) for i in range(9) for j in range(9)]))  # Row distinct
 
         # 3D grid with _grid[r][c][num1-9]
 
@@ -176,158 +277,11 @@ def solving_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool):
                 _solver.add(z3.And([z3.PbEq([(box[j][k],1) for j in range(9)],1) for k in range(9)])]))
             else:
                 _solver.add(z3.Distinct(box))
-    # Assert major diagonal distinct
-    if not classic:
-        # Major diagonal 1
-        _solver.add(z3.Distinct([_grid[r][r + 4] for r in range(4)]))
-        # Major diagonal 2
-        _solver.add(z3.Distinct([_grid[r][r + 1] for r in range(8)]))
-        # Major diagonal 3
-        _solver.add(z3.Distinct([_grid[r + 1][r] for r in range(8)]))
-        # Major diagonal 4
-        _solver.add(z3.Distinct([_grid[r + 4][r] for r in range(4)]))
-        # # Assert minor diagonal distinct
-        # Minor diagonal 1
-        _solver.add(z3.Distinct([_grid[r][-r - 5] for r in range(4)]))
-        # Minor diagonal 2
-        _solver.add(z3.Distinct([_grid[r][-r - 2] for r in range(8)]))
-        # Minor diagonal 3
-        _solver.add(z3.Distinct([_grid[r + 1][-r - 1] for r in range(8)]))
-        # Minor diagonal 4
-        _solver.add(z3.Distinct([_grid[r + 4][-r - 1] for r in range(4)]))
-    # Assert minor diagonal distinct
-    if _solver.check() == z3.sat:
-        # Start by filling the first index
-        if not no_num:
-            if per_col:
-                for i in range(9):
-                    for j in range(9):
-                        x = [k for k in range(1, 10)]
-                        random.shuffle(x)
-                        tryVal = x.pop()
-                        while _solver.check(_grid[i][j] == int(tryVal)) != z3.sat:
-                            if len(x) == 0:
-                                print('Tried all values, no luck')
-                                return None
-                            tryVal = x.pop()
-                        _nums[i][j] = int(tryVal)
-                        _solver.add(_grid[i][j] == tryVal)
-                print("Already solved and appended to the list")
-                return _nums
-
-            else:
-                # Start by filling the number 1,2,3...9
-                for num in range(1, 10):
-                    if num == 9:
-                        for r in range(9):
-                            for c in range(9):
-                                if _nums[r][c] == '.':
-                                    _nums[r][c] = int(num)
-                                    _solver.add(_grid[r][c] == num)
-                    cols = [i for i in range(9)]
-                    for r in range(9):
-                        for c in cols:
-                            if _nums[r][c] == '.':
-                                z3r = _solver.check(_grid[r][c] == int(num))
-                                if z3r == z3.sat:
-                                    _nums[r][c] = int(num)
-                                    _solver.add(_grid[r][c] == num)
-                                    cols.remove(c)
-                                    break
-                                else:
-                                    if z3r != z3.unsat:
-                                        raise "Z3 error"
-                print("Already solved and appended to the list")
-                return _nums
-        # no_num
-        else:
-            if per_col:
-                for i in range(9):
-                    for j in range(9):
-                        x = [k for k in range(9)]
-                        random.shuffle(x)
-                        tryVal = x.pop()
-                        while _solver.check(_grid[i][j][tryVal]) != z3.sat:
-                            if len(x) == 0:
-                                print('Tried all values, no luck')
-                                return None
-                            tryVal = x.pop()
-                        _nums[i][j] = int(tryVal)
-                        _solver.add(_grid[i][j][tryVal])
-                print("Already solved and appended to the list")
-                return _nums
-
-            else:
-                # Start by filling the number 1,2,3...9
-                for num in range(9):
-                    if num == 9:
-                        for r in range(9):
-                            for c in range(9):
-                                if _nums[r][c] == '.':
-                                    _nums[r][c] = int(num)+1
-                                    _solver.add(_grid[r][c][num])
-                    cols = range(9)
-                    for r in range(9):
-                        for c in cols:
-                            if _nums[r][c] == '.':
-                                z3r = _solver.check(_grid[r][c][num])
-                                if z3r == z3.sat:
-                                    _nums[r][c] = int(num)+1
-                                    _solver.add(_grid[r][c][num])
-                                    cols.remove(c)
-                                    break
-                                else:
-                                    if z3r != z3.unsat:
-                                        raise "Z3 error"
-                print("Already solved and appended to the list")
-
-    else:
-        print('Error in one of the constraints')
-        return None
-
-
-# function for generating puzzle param: classic
-# Check if the puzzle is still solveable
-def check_puzzle_solvable(lst, classic: bool, distinct: bool, no_num: bool):
-    s = Sudoku(lst.reshape(-1), classic, distinct,no_num)
-    return s.solve()
-
-
-def generate_puzzle(solved_sudokus, classic: bool, distinct: bool, no_num: bool):
-    '''
-    Generates puzzle with holes
-    :param solved_sudokus: MUST BE a 3D list
-    :param classic:
-    :param distinct:
-    :return: a list of time required for generating each puzzle
-    '''
-    time_rec = []
-    for puzzle in solved_sudokus:
-        st = time.time()
-        for i in range(9):
-            for j in range(9):
-                poss_num = [x for x in range(1, 10)]
-                curr_num = puzzle[i][j]
-                poss_num.remove(curr_num)
-                # try every number except the current one
-                replace = True
-                for ele in poss_num:
-                    puzzle[i][j] = ele
-                    if check_puzzle_solvable(puzzle, classic, distinct,no_num):
-                        replace = False
-                        break
-                if replace:
-                    puzzle[i][j] = 0
-        et = time.time()
-        time_rec.append(et - st)
-        print('Successfully generated one puzzle')
-    return time_rec
-
-
+'''
 # *** Add is_num
 def gen_solve_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool, num_iter: int):
     '''
-    Creates a solved sudoku, then generate a sudoku puzzle. returns time for each
+    First creates a solved sudoku, then generate a sudoku puzzle. returns time for each
 
     :param no_num:
     :param classic:
@@ -336,11 +290,13 @@ def gen_solve_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool,
     :param num_iter:
     :return: (gen_time,solve_time) 1D lists of time
     '''
+    empty_list = [0 for i in range(9) for j in range(9)]
     ret_solv_time = []
     store_solved_sudoku = []
     for i in range(num_iter):
         st = time.time()
-        ret = solving_sudoku(classic, distinct, per_col, no_num)
+        s = Sudoku(empty_list, classic, distinct, per_col, no_num)
+        ret = s.gen_solved_sudoku()
         et = time.time()
         store_solved_sudoku.append(ret)
         ret_solv_time.append(et - st)
