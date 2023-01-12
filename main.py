@@ -185,12 +185,11 @@ class Sudoku:
                         random.shuffle(x)
                         tryVal = x.pop()
                         if self._no_num:
-                            check_condition = self._solver.check(self._grid[i][j][tryVal-1]) != z3.sat
+                            check_condition = lambda tryVal: self._solver.check(self._grid[i][j][tryVal-1]) != z3.sat
                         else:
-                            check_condition = self._solver.check(self._grid[i][j] == int(tryVal)) != z3.sat
+                            check_condition = lambda tryVal: self._solver.check(self._grid[i][j] == int(tryVal)) != z3.sat
 
-                        #**** Might be unsafe to do
-                        while check_condition:
+                        while check_condition(tryVal):
                             if len(x) == 0:
                                 raise 'Tried all values, no luck, check gen_solved_sudoku'
                             tryVal = x.pop()
