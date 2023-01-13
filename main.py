@@ -14,10 +14,8 @@ class Sudoku:
     # The solver
     _solver = None
     # Set of chars that is could be placed in a position
-    # ***
     _valid_charset = set([int(x) for x in range(0, 10)])
     # Type of sudoku
-    # ***
     _nums = [[0 for _ in range(9)] for _ in range(9)]
     _distinct = True
     _classic = True
@@ -64,7 +62,6 @@ class Sudoku:
                 x = sudoku_array[r * 9 + c]
                 assert (x in self._valid_charset), "Invalid sudoku string provided! (invalid character \'{}\')".format(
                     x)
-                # ***
                 if x != 0:
                     self._nums[r][c] = int(x)
                     if self._no_num:
@@ -98,17 +95,20 @@ class Sudoku:
             self._solver.add(z3.And([z3.PbEq([(box[k][j],1) for k in range(9)],1)for j in range(9) for box in boxes])) #box
         else: # numbers  2D grid
             # Restrict digits in between 1-9
-            # **** This might not be correct
-            [self._solver.add(z3.And(digit >= 1, digit <= 9)) for digit in digits]  # Digit
+            for digit in digits:
+                self._solver.add(z3.And(digit >= 1, digit <= 9)) # Digit
             if self._distinct: # distinct, numbers 2D grid
                 self._solver.add(z3.And([z3.Distinct(row) for row in rows])) # rows
                 self._solver.add(z3.And([z3.Distinct(col) for col in cols])) # cols
                 self._solver.add(z3.And([z3.Distinct(box) for box in boxes])) # box
 
             else: # pbeq, numbers, 2D grid
-                [self._solver.add(z3.And([z3.PbEq([(row[i]==k, 1) for i in range(9)], 1) for k in range(9)])) for row in rows] # row
-                [self._solver.add(z3.And([z3.PbEq([(col[i]==k, 1) for i in range(9)], 1)for k in range(9)])) for col in cols] # col
-                [self._solver.add(z3.And([z3.PbEq([(box[i]==k, 1) for i in range(9)],1)for k in range(9)])) for box in boxes] # box
+                for row in rows:
+                    self._solver.add(z3.And([z3.PbEq([(row[i]==k, 1) for i in range(9)], 1) for k in range(9)]))
+                for col in cols:
+                    self._solver.add(z3.And([z3.PbEq([(col[i]==k, 1) for i in range(9)], 1)for k in range(9)]))
+                for box in boxes:
+                    self._solver.add(z3.And([z3.PbEq([(box[i]==k, 1) for i in range(9)],1)for k in range(9)]))
 
         # Argyle-----
         if not self._classic:
@@ -145,6 +145,8 @@ class Sudoku:
             return False
     def removable(self, i, j, test_num):
         '''
+        *** Now testing one index by one index. How to use push and pop
+        to test to whole grid without reloading constraints
         Test if test_num is unique and could be removed
         --Replacement: check_puzzle_solvable function
 
@@ -175,8 +177,6 @@ class Sudoku:
         '''
         self.load_constraints()
         if self._solver.check() == z3.sat:
-
-            # *** Is there any way to further optimize this code
             if self._per_col:
                 # Fill by index
                 for i in range(9):
@@ -257,27 +257,6 @@ def generate_puzzle(solved_sudokus, classic: bool, distinct: bool, per_col: bool
         print('Successfully generated one puzzle')
     return time_rec
 
-'''****
-        if distinct:
-            _solver.add(z3.And([z3.Distinct([_grid[r][c] for r in range(9)]) for c in range(9)]))  # Cols distinct
-            _solver.add(z3.And([z3.Distinct(_grid[i]) for i in range(9)]))  # Rows distinct
-        else:
-            _solver.add(z3.And([z3.And([z3.PbEq([(_grid[i][j] == k, 1) for j in range(9)], 1) for k in range(1, 10)]) for i in range(9)]))  # Row
-            _solver.add(z3.And([z3.And([z3.PbEq([(_grid[j][i] == k, 1) for j in range(9)], 1) for k in range(1, 10)]) for i in range(9)]))
-            # Distinct digits in boxes
-
-        # 3D grid with _grid[r][c][num1-9]
-
-    offset = list(itertools.product(range(0, 3), range(0, 3)))
-    for r in range(0, 9, 3):
-        for c in range(0, 9, 3):
-            box = [_grid[r + dy][c + dx] for dy, dx in offset]
-            if no_num:
-                _solver.add(z3.And([z3.PbEq([(box[j][k],1) for j in range(9)],1) for k in range(9)])]))
-            else:
-                _solver.add(z3.Distinct(box))
-'''
-# *** Add is_num
 def gen_solve_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool, num_iter: int):
     '''
     First creates a solved sudoku, then generate a sudoku puzzle. returns time for each
