@@ -1,17 +1,17 @@
 # Generates
 # Variables calssic, distinct, per_col, is_num
 # per_col only required when generating
-# conditions = [[b1,b2,b3,b4] for b1 in (True,False) for b2 in (True,False) for b3 in (True,False) for b4 in (True,False)]
-# for ele in conditions:
-#     condition = ("classic-" if ele[0] else "argyle-",
-#                   "distinct-" if ele[0] else "PbEq-",
-#                   "percol-" if ele[0] else "inorder-",
-#                   "is_num" if ele[0] else "is_bool")
-#     calssic, distinct, per_col, is_num = condition
-#     print(condition)
-#
-# sub_path = ''.join(condition)
-# print(sub_path)
+conditions = [[b1,b2,b3,b4] for b1 in (True,False) for b2 in (True,False) for b3 in (True,False) for b4 in (True,False)]
+for ele in conditions:
+    condition = ("classic-" if ele[0] else "argyle-",
+                  "distinct-" if ele[0] else "PbEq-",
+                  "percol-" if ele[0] else "inorder-",
+                  "is_num" if ele[0] else "is_bool")
+    calssic, distinct, per_col, is_num = condition
+    print(condition)
+
+sub_path = ''.join(condition)
+print(sub_path)
 
 import os
 import numpy as np
