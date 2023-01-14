@@ -17,7 +17,12 @@ import os
 import numpy as np
 import zipfile
 import time
+# *** Can I do this
+# import main
+# main.gen_solve_sudoku(----)
 
+# *** Better way of storing the file. Change and store to the parent directory
+# Where should the graphing occur.
 a = np.zeros(10)
 print(a)
 # np.save('interesting',a)
