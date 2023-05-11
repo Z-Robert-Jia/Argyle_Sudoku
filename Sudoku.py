@@ -1,11 +1,14 @@
 import itertools
+import os.path
+
 import z3  # if this fails, run 'python -m pip install z3-solver'
 import numpy as np
 import random
-import copy
+from copy import deepcopy
 import time
 import matplotlib.pyplot as plt
 from typing import List
+from pathlib import Path
 
 
 # Sudoku Class
@@ -173,7 +176,7 @@ class Sudoku:
         else:
             return False
 
-    def removable(self, i, j, test_num) -> (bool,int):
+    def removable(self, i, j, test_num) -> (bool, int):
         '''
         Now testing one index by one index. How to use push and pop
         to test to whole grid without reloading constraints
@@ -403,7 +406,8 @@ class Sudoku:
             print(self._solver.to_smt2(), file=myfile)
 
 
-def generate_puzzle(solved_sudokus, classic: bool, distinct: bool, per_col: bool, no_num: bool, prefill: bool, log_path=""):
+def generate_puzzle(solved_sudokus, classic: bool, distinct: bool, per_col: bool, no_num: bool, prefill: bool,
+                    log_path=""):
     '''
     Generates puzzle with holes
 
@@ -435,12 +439,13 @@ def generate_puzzle(solved_sudokus, classic: bool, distinct: bool, per_col: bool
         print(puzzle)
     # **** REMOVE
     # np.save('sudoku_puzzle', solved_sudokus)
-    assert len(time_rec) == len(penalty_lst),  "Bug in generate_puzzle"
+    assert len(time_rec) == len(penalty_lst), "Bug in generate_puzzle"
 
     return time_rec, penalty_lst
 
 
-def gen_solve_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool, prefill: bool, num_iter=1, log_path="logFile"):
+def gen_solve_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool, prefill: bool, num_iter=1,
+                     log_path="logFile"):
     '''
     First creates a solved sudoku, then generate a sudoku puzzle. returns time for each
 
@@ -465,7 +470,7 @@ def gen_solve_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool,
         ret_solve_time.append(et - st)
         solve_penalty.append(penalty)
     # np.save('solved_sudoku', store_solved_sudoku)
-    store_holes = copy.deepcopy(store_solved_sudoku)
+    store_holes = deepcopy(store_solved_sudoku)
     store_holes = np.array(store_holes)
     print("Start generating puzzles")
     ret_holes_time, holes_penalty = generate_puzzle(store_holes, classic, distinct, per_col, no_num, prefill)
@@ -473,25 +478,64 @@ def gen_solve_sudoku(classic: bool, distinct: bool, per_col: bool, no_num: bool,
     return ret_solve_time, solve_penalty, ret_holes_time, holes_penalty
 
 
-def gen_full_sudoku(*constraints, store_sudoku_path=""):
+def append_list_to_file(file_path, lst: list[int]):
+    par_dir = Path(file_path).parent
+    if not os.path.exists(par_dir):
+        os.makedirs(par_dir)
+    with open(file_path, 'a+') as f:
+        f.write(str(lst) + "\n")
+
+
+def gen_full_sudoku(*constraints, hard_instances_log_path='DataCollection/', store_sudoku_path="") -> (float, int):
     """
-    append generated sudoku to the designated path as a string
+    append generated full sudoku to the designated path as a string
     
+    :param hard_instances_log_path:
     :param constraints: classic, distinct, percol, no_num, prefill
     :param store_sudoku_path:
-    :return:
+    :return: (time, penalty)
     """
-    pass
+    empty_list = [0 for i in range(9) for j in range(9)]
+    st = time.time()
+    s = Sudoku(empty_list, *constraints, log_path=hard_instances_log_path)
+    nums, penalty = s.gen_solved_sudoku()
+    et = time.time()
+    # Write to file
+    append_list_to_file(store_sudoku_path, sum(nums, []))  # flatten 2D nums into 1D
+    return et - st, penalty
 
 
-def gen_holes_sudoku(*constraints, store_sudoku_path=""):
+def gen_holes_sudoku(solved_sudoku: list[int], *constraints, hard_instances_log_path='DataCollection/',
+                     store_sudoku_path=""):
     """
     Reads sudokus as a string from store_sudoku_path
+    :param solved_sudoku: 1D list of an already solved sudoku grid
+    :param hard_instances_log_path:
     :param constraints: classic, distinct, percol, no_num, prefill
     :param store_sudoku_path:
-    :return:
+    :return: (time, penalty)
     """
-    pass
+    print(f'Solving puzzle: ')
+    print(solved_sudoku)
+    st = time.time()
+    penalty = 0
+    for i in range(9):
+        for j in range(9):
+            s = Sudoku(solved_sudoku, *constraints, log_path=hard_instances_log_path)
+            removable, temp_penalty = s.removable(i, j, solved_sudoku[i*9+j])
+            if removable:
+                solved_sudoku[i * 9 + j] = 0
+            penalty += temp_penalty
+    et = time.time()
+    time_rec = et - st
+    penalty = penalty
+    print('Successfully generated one puzzle')
+    # **** REMOVE
+    print(solved_sudoku)
+    # **** REMOVE
+    # np.save('sudoku_puzzle', solved_sudokus)
+    append_list_to_file(store_sudoku_path, solved_sudoku)
+    return time_rec, penalty
 
 
 if __name__ == "__main__":
@@ -499,7 +543,6 @@ if __name__ == "__main__":
     # classic, distinct, per_col, no_num
     solve_time, solve_penalty, gen_time, gen_penalty = gen_solve_sudoku(False, True, True, False, True, num_iter=100,
                                                                         log_path='DataCollection/')
-
 
     # print(gen_solve_sudoku(classic=False, distinct=True, per_col=True, no_num=False, prefill=True, num_iter=2,
     #                        log_path="DataCollection/"))
