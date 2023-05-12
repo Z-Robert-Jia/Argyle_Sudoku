@@ -24,11 +24,12 @@ class Sudoku:
     _classic = True
     _no_num = True
     _per_col = True
-    _log_path = None
+    hard_smt_logPath = None
+    hard_sudoku_logPath = None
     _prefill = False
 
     def __init__(self, sudoku_array: List[int], classic: bool, distinct: bool, per_col: bool, no_num: bool,
-                 prefill: bool, log_path=""):
+                 prefill: bool, hard_smt_logPath="", hard_sudoku_logPath="",print_progress=False):
         """
         Only write a logFile when a path is provided
         Type hint for List[int] might not work
@@ -37,7 +38,7 @@ class Sudoku:
         :param distinct:
         :param per_col:
         :param no_num:
-        :param log_path:
+        :param hard_smt_logPath:
         """
         # a 1-D sudoku_array
         self._solver = z3.Solver()
@@ -50,9 +51,12 @@ class Sudoku:
         self._no_num = no_num
         self._per_col = per_col
         self._nums = [[0 for _ in range(9)] for _ in range(9)]
-        self._log_path = log_path
+        self.hard_smt_logPath = hard_smt_logPath
+        self.hard_sudoku_logPath = hard_sudoku_logPath
         self._prefill = prefill
         self._penalty = 0
+        self.condition_tpl = (self._classic,self._distinct,self._per_col,self._no_num,self._prefill)
+        self._print_progress = print_progress
 
         # Create variables
         if not no_num:
@@ -199,7 +203,9 @@ class Sudoku:
             if condition == z3.unknown:
                 raise f"Timeout happened twice when checking if {i} {j} {test_num} is removable"
             else:
-                print(f'unsolvable problem checking removable was {condition} for ({i},{j}) is {test_num}')
+                if self._print_progress:
+                    print(f'unsolvable problem checking removable was {condition} for ({i},{j}) is {test_num}')
+                self.write_to_smt_and_sudoku_file((i,j),test_num,condition)
                 return condition != z3.sat, 1
         return True, 0
 
@@ -227,7 +233,7 @@ class Sudoku:
         if self._timeout == 0: return res
         if end - start < (self._timeout - 100) / 1000 and res == z3.unknown:
             raise 'Probably somebody hit ctrl-c, aborting'
-        if end - start > self._timeout / 10000 and res != z3.unknown:
+        elif self._print_progress and end - start > self._timeout / 10000 and res != z3.unknown:
             print('One check took more than 10% of timeout, but completed')
         return res
 
@@ -235,6 +241,13 @@ class Sudoku:
         res = self._solver.check(
             self._grid[i][j][tryVal - 1] == False if self._no_num else self._grid[i][j] != int(tryVal))
         return res
+
+    def add_constaint(self,i, j, tryVal):
+        self._nums[i][j] = int(tryVal)
+        if self._no_num:
+            self._solver.add(self._grid[i][j][tryVal - 1])
+        else:
+            self._solver.add(self._grid[i][j] == tryVal)
 
     def gen_solved_sudoku(self):
         '''
@@ -266,18 +279,21 @@ class Sudoku:
                         check = self.check_condition(i, j, tryVal)
                     while check != z3.sat:
                         if check == z3.unknown:
-                            if self._log_path:
-                                self.write_to_smt_file(
-                                    self._log_path + time.strftime("%m_%d_%H_%M_%S") + str(time.time()))
-                            else:
-                                print("TimeOut and a logPath is not provided")
+
                             # raise f'TimeOut while solving the row {i} col{j}'
                             # *** Might need to change this part when solving sudokus
                             s_new = self.new_solver()
                             check = s_new.check_condition(i, j, tryVal)
+
+                            # Record to log path
+                            if self.hard_smt_logPath:
+                                self.write_to_smt_and_sudoku_file((i,j),tryVal,check)
+                            else:
+                                print("TimeOut and a logPath is not provided")
+
                             if check == z3.unknown:
                                 raise 'Timeout happened twice, don\'t know how to continue!'
-                            else:
+                            elif self._print_progress:
                                 print(f'unsolvable problem was {check} for ({i},{j}) is {tryVal}')
                         else:  # check == z3.unsat
                             assert (check == z3.unsat)
@@ -293,11 +309,13 @@ class Sudoku:
                     else:
                         self._solver.add(self._grid[i][j] == tryVal)
 
-                print(f'Finished with row {i} and filled \n {self._nums[i]}')
+                if self._print_progress:
+                    print(f'Finished with row {i} and filled \n {self._nums[i]}')
         else:  # not per_col
             # Start by filling the number 1,2,3...9
             for num in range(1, 10):
-                print(f'Filling number {num}')
+                if self._print_progress:
+                    print(f'Filling number {num}')
                 if num == 9:
                     for r in range(9):
                         for c in range(9):
@@ -316,27 +334,25 @@ class Sudoku:
                                 # z3r = self.check_condition(r,c,num)
                                 condition = self.check_condition(r, c, num)
                                 if condition == z3.sat:
-                                    self._nums[r][c] = int(num)
-                                    self._solver.add(condition)
-                                    cols.remove(c)
+                                    self.add_constaint(r,c,num)
                                     break
                                 else:
                                     if condition == z3.unknown:
-                                        if self._log_path:
-                                            self.write_to_smt_file(self._log_path)
-                                        else:
-                                            print("TimeOut and a logPath is not provided")
-
                                         s_new = self.new_solver()
                                         check = s_new.check_condition(r, c, num)
 
+                                        if self.hard_smt_logPath:
+                                            self.write_to_smt_and_sudoku_file((r, c), num, check)
+                                        else:
+                                            print("TimeOut and a logPath is not provided")
+
                                         if check == z3.unknown:
                                             raise 'Timeout happened twice, don\'t know how to continue!'
-                                        else:
+                                        elif self._print_progress:
                                             print(f'unsolvable problem was {check} for ({r},{c}) is {num}')
                                         if check == z3.sat:
-                                            self._nums[r][c] = int(num)
-                                            self._solver.add(condition)
+                                            self.add_constaint(r,c,num)
+                                            # self._solver.add(condition)
                                             cols.remove(c)
                                             break
 
@@ -359,9 +375,9 @@ class Sudoku:
 
                             elif self._nums[r][c] == num:
                                 cols.remove(c)
-
-        print("Generated a solved sudoku")
-        print(self._nums)
+        if self._print_progress:
+            print("Generated a solved sudoku")
+            print(self._nums)
         return self._nums, self._penalty
         # elif self._solver.check() == z3.unknown:
         #     if self._log_path:
@@ -379,10 +395,12 @@ class Sudoku:
         :param file_path:
         :return:
         """
-        print(self._nums)
-        with open(self._log_path, 'w') as f:
+        if self._print_progress:
+            print(self._nums)
+        with open(self.hard_smt_logPath, 'w') as f:
             s = ''.join(str(ele) for rows in self._nums for ele in rows)
             f.write(s)
+
 
     def read_from_file(self, file_path="logFile") -> str:
         """
@@ -394,7 +412,7 @@ class Sudoku:
             s = f.read()
         return s
 
-    def write_to_smt_file(self, _log_path):
+    def write_to_smt_and_sudoku_file(self, pos, value, sat):
         """Write self._solver as a smt file to _log_path
 
         When reading the constraints:
@@ -402,26 +420,42 @@ class Sudoku:
         t.from_file(_log_path)
         print(t, t.check())
         """
-        with open(_log_path, 'w') as myfile:
+        # check directory exist
+        par_dir = Path(self.hard_smt_logPath).parent
+        if not os.path.exists(par_dir):
+            os.makedirs(par_dir)
+        time_str = time.strftime("%m_%d_%H_%M_%S") + str(time.time())
+        with open(self.hard_smt_logPath+time_str, 'w') as myfile:
             print(self._solver.to_smt2(), file=myfile)
+
+        # check directory exist
+        par_dir = Path(self.hard_sudoku_logPath).parent
+        if not os.path.exists(par_dir):
+            os.makedirs(par_dir)
+        with open(self.hard_sudoku_logPath + time_str, 'a+') as myfile:
+            sudoku_lst = ''.join(str(ele) for rows in self._nums for ele in rows)
+            print(f'{sudoku_lst}\t{self.condition_tpl}\t{pos}\t{value}\t{sat}\n', file=myfile)
+
 
 
 def generate_puzzle(solved_sudokus, classic: bool, distinct: bool, per_col: bool, no_num: bool, prefill: bool,
-                    log_path=""):
-    '''
+                    log_path="",print_progress=False):
+    """
     Generates puzzle with holes
 
+    :param print_progress:
+    :param log_path:
     :param solved_sudokus: MUST BE a 3D list
     :param classic:
     :param distinct:
     :return: [[time_rec], [penalty_lst]] list of lists
-    '''
+    """
     time_rec = []
     penalty_lst = []
     for puzzle in solved_sudokus:
-        # **** REMOVE
-        print(f'Solving puzzle: ')
-        print(puzzle)
+        if print_progress:
+            print(f'Solving puzzle: ')
+            print(puzzle)
         st = time.time()
         penalty = 0
         for i in range(9):
@@ -486,18 +520,18 @@ def append_list_to_file(file_path, lst: list[int]):
         f.write(str(lst) + "\n")
 
 
-def gen_full_sudoku(*constraints, hard_instances_log_path='DataCollection/', store_sudoku_path="") -> (float, int):
+def gen_full_sudoku(*constraints, hard_smt_logPath='smt-logFiles/', store_sudoku_path="",hard_sudoku_logPath="") -> (float, int):
     """
     append generated full sudoku to the designated path as a string
     
-    :param hard_instances_log_path:
+    :param hard_smt_log_path:
     :param constraints: classic, distinct, percol, no_num, prefill
     :param store_sudoku_path:
     :return: (time, penalty)
     """
     empty_list = [0 for i in range(9) for j in range(9)]
     st = time.time()
-    s = Sudoku(empty_list, *constraints, log_path=hard_instances_log_path)
+    s = Sudoku(empty_list, *constraints, hard_smt_logPath=hard_smt_logPath, hard_sudoku_logPath=hard_sudoku_logPath)
     nums, penalty = s.gen_solved_sudoku()
     et = time.time()
     # Write to file
@@ -505,8 +539,8 @@ def gen_full_sudoku(*constraints, hard_instances_log_path='DataCollection/', sto
     return et - st, penalty
 
 
-def gen_holes_sudoku(solved_sudoku: list[int], *constraints, hard_instances_log_path='DataCollection/',
-                     store_sudoku_path=""):
+def gen_holes_sudoku(solved_sudoku: list[int], *constraints, hard_smt_logPath='smt-logFiles/', store_sudoku_path="",
+                     hard_sudoku_logPath="",print_progress=False):
     """
     Reads sudokus as a string from store_sudoku_path
     :param solved_sudoku: 1D list of an already solved sudoku grid
@@ -515,24 +549,26 @@ def gen_holes_sudoku(solved_sudoku: list[int], *constraints, hard_instances_log_
     :param store_sudoku_path:
     :return: (time, penalty)
     """
-    print(f'Solving puzzle: ')
-    print(solved_sudoku)
+    if print_progress:
+        print(f'Solving puzzle: ')
+        print(solved_sudoku)
     st = time.time()
     penalty = 0
     for i in range(9):
         for j in range(9):
-            s = Sudoku(solved_sudoku, *constraints, log_path=hard_instances_log_path)
+            s = Sudoku(solved_sudoku, *constraints, hard_smt_logPath=hard_smt_logPath,
+                       hard_sudoku_logPath=hard_sudoku_logPath)
             removable, temp_penalty = s.removable(i, j, solved_sudoku[i*9+j])
             if removable:
                 solved_sudoku[i * 9 + j] = 0
             penalty += temp_penalty
     et = time.time()
     time_rec = et - st
+
     penalty = penalty
-    print('Successfully generated one puzzle')
-    # **** REMOVE
-    print(solved_sudoku)
-    # **** REMOVE
+    if print_progress:
+        print('Successfully generated one puzzle')
+        print(solved_sudoku)
     # np.save('sudoku_puzzle', solved_sudokus)
     append_list_to_file(store_sudoku_path, solved_sudoku)
     return time_rec, penalty

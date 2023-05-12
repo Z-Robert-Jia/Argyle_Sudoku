@@ -1,0 +1,1 @@
+{'../store-sudoku/classic_full_sudokus.txt': 109800, '../store-sudoku/argyle_full_sudokus.txt': 131760}
